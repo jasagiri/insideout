@@ -23,7 +23,13 @@ export coop
 const insideoutAggressiveDealloc {.booldefine.} = false
 const insideoutDeferredCancellation* {.booldefine.} = false
 
-let insideoutInterruptSignal* = SIGRTMIN
+when defined(macosx) or defined(darwin) or defined(bsd):
+  let insideoutInterruptSignal* = SIGUSR1
+elif defined(linux):
+  let insideoutInterruptSignal* = SIGRTMIN
+else:
+  let insideoutInterruptSignal* = 31.cint
+
 let unmaskedSignals = {insideoutInterruptSignal}
 
 type
@@ -192,10 +198,9 @@ proc waitForFlags(runtime: var RuntimeObj; mode: WaitMode; wants: uint32): bool 
         checkWait waitMask(runtime.flags, has, wants and not has)
       except FutexError as e:
         raise RuntimeError.newException $e.name & ":" & e.msg
-    case err
-    of 0, EINTR, EAGAIN:
+    if err == 0 or err == EINTR or err == EAGAIN:
       discard
-    of ETIMEDOUT:
+    elif err == ETIMEDOUT:
       raise RuntimeError.newException "timeout waiting for thread"
     else:
       raise RuntimeError.newException "unexpected futex error: " & $err
@@ -449,10 +454,10 @@ proc loop(eq: var EventQueue; runtime: var RuntimeObj): cint =
       if flags && <<!Frozen:
         phase = CheckState
       else:
-        case checkWait waitMask(runtime.flags, flags, <<Halted + <<!Frozen)
-        of EINTR:
+        let e = checkWait waitMask(runtime.flags, flags, <<Halted + <<!Frozen)
+        if e == EINTR:
           discard
-        of 0, EAGAIN:
+        elif e == 0 or e == EAGAIN:
           let flags = get runtime.flags
           phase =
             if flags && <<Halted:      # halted while frozen
@@ -461,7 +466,7 @@ proc loop(eq: var EventQueue; runtime: var RuntimeObj): cint =
               FrozenPhase              # loop and don't rename thread
             else:                      # unfrozen
               CheckState
-        of ETIMEDOUT:
+        elif e == ETIMEDOUT:
           runtime.error = RuntimeError.newException "timeout"
           result = exceptionHandler(runtime.error, "frozen;")
           nextIf errno
@@ -619,10 +624,9 @@ proc boot(runtime: var RuntimeObj; size = insideoutStackSize)
       except FutexError as e:
         raise SpawnError.newException e.msg
         errno
-    case err
-    of 0, EINTR, EAGAIN:
+    if err == 0 or err == EINTR or err == EAGAIN:
       discard
-    of ETIMEDOUT:
+    elif err == ETIMEDOUT:
       raise SpawnError.newException "timeout waiting for thread to boot"
     else:
       raise SpawnError.newException "unexpected futex errno: " & $err

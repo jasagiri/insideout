@@ -230,8 +230,7 @@ proc performWait[T](mail: Mailbox[T]; has: uint32; wants: uint32): bool {.discar
   result = 0 == (has and wants)
   if result:
     let e = checkWait waitMask(mail[].state, has, wants)
-    case e
-    of EINTR:
+    if e == EINTR:
       debug "INTERRUPT"
     else:
       discard
