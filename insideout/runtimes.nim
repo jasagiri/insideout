@@ -531,13 +531,13 @@ proc defaultSignalHandler(runtime: Runtime; fd: Fd) {.cps: Continuation.} =
   while true:
     coop()
     var info = fd.readSigInfo()
-    case info.ssi_signo.cint
-    of SIGINT:
+    let s = info.ssi_signo.cint
+    if s == SIGINT:
       # if we're here, well, mission accomplished
       discard
-    of SIGTERM, SIGQUIT:
+    elif s == SIGTERM or s == SIGQUIT:
       halt runtime
-    of SIGCONT:
+    elif s == SIGCONT:
       thaw runtime
     else:
       when false:
@@ -572,6 +572,13 @@ proc dispatcher(runtime: sink Runtime): cint =
     else:
       let flags = get runtime[].flags
       var mask = signalMask runtime[]
+      
+      when defined(macosx) or defined(darwin):
+        # Set the signal mask for this thread on macOS
+        var oldMask: Sigset
+        if 0 != pthread_sigmask(SIG_SETMASK, mask, oldMask):
+          result = exceptionHandler(RuntimeError.newException "unable to set signal mask", "mask;")
+
       runtime[].signals = initSignalFd(mask)
       var handler = whelp defaultSignalHandler(runtime, runtime[].signals)
       var eq: EventQueue
@@ -605,7 +612,8 @@ proc boot(runtime: var RuntimeObj; size = insideoutStackSize)
   let mask = signalMask runtime
   var attr {.noinit.}: PThreadAttr
   spawnCheck pthread_attr_init(addr attr)
-  spawnCheck pthread_attr_setsigmask_np(addr attr, addr mask)
+  when not defined(macosx) and not defined(darwin):
+    spawnCheck pthread_attr_setsigmask_np(addr attr, addr mask)
   spawnCheck pthread_attr_setdetachstate(addr attr, PTHREAD_CREATE_DETACHED)
   spawnCheck pthread_attr_setstacksize(addr attr, size.cint)
   runtime.parent = pthread_self()
