@@ -110,8 +110,8 @@ proc wakeMask*[T](monitor: var Atomic[T]; mask: uint32; count = high(int32)): ci
 proc checkWait*(err: cint): cint {.discardable.} =
   if -1 == err:
     result = errno
-    case errno
-    of EINTR, EAGAIN, ETIMEDOUT:
+    let e = errno
+    if e == EINTR or e == EAGAIN or e == ETIMEDOUT:
       discard
     else:
       raise FutexError.newException $strerror(errno)
