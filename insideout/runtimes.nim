@@ -335,7 +335,7 @@ const emptyTimeSpec = TimeSpec(tv_sec: 0.Time, tv_nsec: 0.clong)
 
 proc process(eq: var EventQueue; runtime: var RuntimeObj): cint =
   ## process one event or signal in each iteration of the event loop
-  var events {.noinit.}: array[1, epoll_event]
+  var events {.noinit.}: array[1, EventInfo]
   try:
     let ready = eq.wait(events, timeout = addr emptyTimeSpec, nil)
     if ready == -1:
@@ -510,12 +510,6 @@ proc setupInterrupts*() {.raises: [RuntimeError].} =
   sa.sa_flags = 0
   sa.sa_handler = ignore
   checkSig sigaction(insideoutInterruptSignal, sa, nil)
-
-proc initSignalFd*(mask: Sigset): Fd {.raises: [RuntimeError].} =
-  ## create a new signal file descriptor
-  result = signalfd(invalidFd, addr mask, SFD_NONBLOCK or SFD_CLOEXEC)
-  if invalidFd == result:
-    raise RuntimeError.newException: $strerror(errno)
 
 proc signalMask(runtime: var RuntimeObj): Sigset {.raises: [RuntimeError].} =
   ## compose a signal mask for the runtime
