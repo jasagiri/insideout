@@ -618,24 +618,24 @@ proc cancel*(eq: EventQueue; id: Id): bool {.discardable.} =
   if result:
     eq[].delRegistry eq[].registry[id]  # let it crash with KeyError
 
-when defined(macosx) or defined(darwin) or defined(bsd):
-proc suspendTimer(c: sink Continuation; eq: EventQueue;
-                  timeout: float): Continuation {.cpsMagic.} =
-  let id = fetchAdd(eq[].nextId, 1, order = moAcquireRelease)
-  var ev: kevent
-  ev.ident = id.uint
-  ev.filter = EVFILT_TIMER
-  ev.flags = EV_ADD or EV_ENABLE or EV_ONESHOT
-  ev.data = int(timeout * 1000) # milliseconds
-  ev.udata = cast[pointer](id)
+  when defined(macosx) or defined(darwin) or defined(bsd):
+  proc suspendTimer(c: sink Continuation; eq: EventQueue;
+                    timeout: float): Continuation {.cpsMagic.} =
+    let id = fetchAdd(eq[].nextId, 1, order = moAcquireRelease)
+    var ev: kevent
+    ev.ident = id.uint
+    ev.filter = EVFILT_TIMER
+    ev.flags = EV_ADD or EV_ENABLE or EV_ONESHOT
+    ev.data = int(timeout * 1000) # milliseconds
+    ev.udata = cast[pointer](id)
+    
+    var record = Record(c: c, id: Id(id), fd: invalidFd, events: {Read, OneShot})
+    eq[].addRegistry record
+    
+    checkErr kevent_proc(eq[].interest, addr ev, 1, nil, 0, nil)
+    result = nil
   
-  var record = Record(c: c, id: Id(id), fd: invalidFd, events: {Read, OneShot})
-  eq[].addRegistry record
   
-  checkErr kevent_proc(eq[].interest, addr ev, 1, nil, 0, nil)
-  result = nil
-
-
 proc sleep*(eq: EventQueue; timeout: float) {.cps: Continuation.} =
   ## sleep for `timeout` seconds
   when defined(linux):
