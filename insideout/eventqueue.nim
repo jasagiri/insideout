@@ -618,7 +618,7 @@ proc cancel*(eq: EventQueue; id: Id): bool {.discardable.} =
   if result:
     eq[].delRegistry eq[].registry[id]  # let it crash with KeyError
 
-  when defined(macosx) or defined(darwin) or defined(bsd):
+when defined(macosx) or defined(darwin) or defined(bsd):
   proc suspendTimer(c: sink Continuation; eq: EventQueue;
                     timeout: float): Continuation {.cpsMagic.} =
     let id = fetchAdd(eq[].nextId, 1, order = moAcquireRelease)
