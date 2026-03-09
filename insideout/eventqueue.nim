@@ -618,6 +618,7 @@ proc cancel*(eq: EventQueue; id: Id): bool {.discardable.} =
   if result:
     eq[].delRegistry eq[].registry[id]  # let it crash with KeyError
 
+when defined(macosx) or defined(darwin) or defined(bsd):
 proc suspendTimer(c: sink Continuation; eq: EventQueue;
                   timeout: float): Continuation {.cpsMagic.} =
   let id = fetchAdd(eq[].nextId, 1, order = moAcquireRelease)
@@ -633,6 +634,7 @@ proc suspendTimer(c: sink Continuation; eq: EventQueue;
   
   checkErr kevent_proc(eq[].interest, addr ev, 1, nil, 0, nil)
   result = nil
+
 
 proc sleep*(eq: EventQueue; timeout: float) {.cps: Continuation.} =
   ## sleep for `timeout` seconds
