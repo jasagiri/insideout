@@ -123,11 +123,17 @@ proc waitMask*[T](monitor: var Atomic[T]; compare: T; mask: uint32;
       raise FutexError.newException "mask and compare overlap"
     else:
       var tm: TimeSpec
-      # try:
-      #   tm = getTimeSpec(CLOCK_MONOTONIC) + timeout.toTimeSpec
-      # except OSError as e:
-      #   raise FutexError.newException $e.name & ":" & e.msg
-      tm = timeout.toTimeSpec
+      when defined(macosx) or defined(darwin):
+        # Darwin's ulock emulation interprets the timeout as a relative
+        # duration, so the interval is passed through directly.
+        tm = timeout.toTimeSpec
+      else:
+        # Linux FUTEX_WAIT_BITSET treats the timeout as an absolute deadline
+        # measured against CLOCK_MONOTONIC.
+        try:
+          tm = getTimeSpec(CLOCK_MONOTONIC) + timeout.toTimeSpec
+        except OSError as e:
+          raise FutexError.newException $e.name & ":" & e.msg
       result = sysFutex(addr monitor, WaitBitsPrivate, cast[uint32](compare),
                         timeout = addr tm, val3 = mask)
 
@@ -152,25 +158,36 @@ proc wakeMask*[T](monitor: var Atomic[T]; mask: uint32; count = high(int32)): ci
 
 proc checkWait*(err: cint): cint {.discardable.} =
   if -1 == err:
-    let e = errno
-    result = e
-    if e == EINTR or e == EAGAIN or e == ETIMEDOUT:
-      discard
+    result = errno
+    when defined(macosx) or defined(darwin):
+      # macOS exposes EINTR/EAGAIN/ETIMEDOUT as `let`-bound importc values,
+      # which cannot appear in `case` branches; an `if` ladder is used here.
+      if errno == EINTR or errno == EAGAIN or errno == ETIMEDOUT:
+        discard
+      else:
+        raise FutexError.newException $strerror(errno)
     else:
-      raise FutexError.newException $strerror(e)
+      case errno
+      of EINTR, EAGAIN, ETIMEDOUT:
+        discard
+      else:
+        raise FutexError.newException $strerror(errno)
   else:
     result = err
 
 proc checkWake*(err: cint): cint {.discardable.} =
   if -1 == err:
-    let e = errno
-    # On macOS, ulock_wake returns ENOENT if no threads are waiting.
-    # Linux futex(WAKE) returns 0 in this case.
-    if e == ENOENT:
-      result = 0
+    result = errno
+    when defined(macosx) or defined(darwin):
+      # Darwin's __ulock_wake reports ENOENT when no threads are queued on
+      # the address; Linux futex(WAKE) simply returns 0 in that case, so
+      # ENOENT is normalized to a successful no-op wake.
+      if errno == ENOENT:
+        result = 0
+      else:
+        raise FutexError.newException $strerror(errno)
     else:
-      result = e
-      raise FutexError.newException $strerror(e)
+      raise FutexError.newException $strerror(errno)
   else:
     result = err
 
